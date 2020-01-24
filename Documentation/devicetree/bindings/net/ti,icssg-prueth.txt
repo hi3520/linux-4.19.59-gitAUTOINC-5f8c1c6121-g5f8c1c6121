@@ -1,0 +1,182 @@
+Texas Instruments ICSSG PRUSS Ethernet
+======================================
+
+Required properties:
+- compatible       : Should be "ti,am654-icssg-prueth" for AM65x Family SoCs
+		     Should be "ti,am654-dualicssg-prueth" for AM65x Family
+		     SoCs when ICSSG0 and ICSSG1 are paired. See more details
+		     below on pairing of ICSSGs.
+- prus             : list of pHandles to the PRU and RTU nodes
+- firmware-name    : should contain the name of the firmware image
+			file located in the firmware search path
+- sram	           : phandle to MSMC SRAM node
+- dmas		   : list of phandles and specifiers to UDMA as specified in
+			bindings/dma/ti/k3-udma.txt.
+- dma-names	   : Names for the DMA channels.
+			Should be "tx0-0", "tx0-1", "tx0-2", "0-3",
+			    "tx1-0", "tx1-1", "tx1-2", "tx1-3",
+			    "rx0", "rx1", "rxmgm0", "rxmgm1"
+- mii-g-rt	   : phandle to MII_G_RT module's syscon regmap.
+
+- mii-rt	   : phandle to MII_RT module's syscon regmap.
+
+Below DT properties are used when an interposer card is connected between the
+IDK application board and AM65x base board. In this configuration, ICSSG0 and
+ICSSG1 are paired or combined to provide a pair of Ethernet interfaces
+corresponding to the Eth0 and Eth1 ports of the IDK application board.
+compatible will be set to "ti,am654-dualicssg-prueth" when this configuration
+is used.  Eth2 and Eth3 ports are not used in this configuration.  Following
+are the ICSSG Slice (A pair of PRU/RTU cores) allocation for Eth0 and Eth1
+ports.  Each ICSSG has two slices, each handling one direction of the Ethernet
+interface.
+
+         Rx       |------------------------------------|   Tx
+   Eth0 --------->|---ICSSG0/Slice-0    ICSSG1/Slice-1-|----> Eth0
+   Eth1 --------->|---ICSSG1/Slice-0    ICSSG0/Slice-1-|----> Eth1
+         Rx       |-------------------------------------   Tx
+
+Eth0/Eth1/Eth2/Eth3 are the legends marked on the IDK application board near
+the RJ45 connectors.
+
+- mii-rt-paired	   : phandle to ICSSG1 MII_RT module's syscon
+		     regmap.  mii-rt points to that of ICSSG0.
+- mii-g-rt-paired  : phandle to ICSSG1 MII_G_RT module's syscon
+		     regmap.  mii-g-rt points to that of ICSSG1.
+
+Must contain children, one for each of the MAC ports.
+Children must be named ethernet-mii0 and ethernet-mii1.
+Either one or both children can be present. If only one
+child is present driver operates in single EMAC mode.
+
+For single mode operation with the 2nd SLICE, you still need
+to provide both PRUs and RTUs and firmware-names but the firmware-name
+for the first PRU & RTU can be NULL.
+
+Required properties for children:
+- phy-handle       : See ethernet.txt file in the same directory.
+- phy-mode         : See ethernet.txt file in the same directory.
+- syscon-rgmii-delay : phandle to system controller node and register offset
+			to ICSSG control register for RGMII transmit delay.
+- iep		   : phandle to IEP module's syscon regmap.
+
+Optional properties for children:
+- local-mac-address	: mac address for the port.
+
+Example (k3-am654 base board, dual-emac on ICSSG2):
+===================================================
+
+	pruss2_eth {
+		compatible = "ti,am654-icssg-prueth";
+		pinctrl-names = "default";
+		pinctrl-0 = <&icssg2_rgmii_pins_default>;
+		sram = <&msmc_ram>;
+		interrupt-parent = <&main_udmass_inta>;
+
+		prus = <&pru2_0>, <&rtu2_0>, <&pru2_1>, <&rtu2_1>;
+		firmware-name = "ti-pruss/am65x-pru0-prueth-fw.elf",
+				"ti-pruss/am65x-rtu0-prueth-fw.elf",
+				"ti-pruss/am65x-pru1-prueth-fw.elf",
+				"ti-pruss/am65x-rtu1-prueth-fw.elf";
+		mii-g-rt = <&icssg2_mii_g_rt>;
+		mii-rt = <&icssg2_mii_rt>;
+		dma-coherent;
+		dmas = <&main_udmap &icssg2 0 UDMA_DIR_TX>, /* egress slice 0 */
+		       <&main_udmap &icssg2 1 UDMA_DIR_TX>, /* egress slice 0 */
+		       <&main_udmap &icssg2 2 UDMA_DIR_TX>, /* egress slice 0 */
+		       <&main_udmap &icssg2 3 UDMA_DIR_TX>, /* egress slice 0 */
+		       <&main_udmap &icssg2 4 UDMA_DIR_TX>, /* egress slice 1 */
+		       <&main_udmap &icssg2 5 UDMA_DIR_TX>, /* egress slice 1 */
+		       <&main_udmap &icssg2 6 UDMA_DIR_TX>, /* egress slice 1 */
+		       <&main_udmap &icssg2 7 UDMA_DIR_TX>, /* egress slice 1 */
+
+		       <&main_udmap &icssg2 0 UDMA_DIR_RX>, /* ingress slice 0 */
+		       <&main_udmap &icssg2 1 UDMA_DIR_RX>, /* ingress slice 1 */
+		       <&main_udmap &icssg2 2 UDMA_DIR_RX>, /* mgmnt rsp slice 0 */
+		       <&main_udmap &icssg2 3 UDMA_DIR_RX>; /* mgmnt rsp slice 1 */
+		dma-names = "tx0-0", "tx0-1", "tx0-2", "tx0-3",
+			    "tx1-0", "tx1-1", "tx1-2", "tx1-3",
+			    "rx0", "rx1",
+			    "rxmgm0", "rxmgm1";
+
+		pruss2_emac0: ethernet-mii0 {
+			phy-handle = <&pruss2_eth0_phy>;
+			phy-mode = "rgmii-id";
+			syscon-rgmii-delay = <&scm_conf 0x4120>;
+			iep = <&icssg2_iep0>;
+			/* Filled in by bootloader */
+			local-mac-address = [00 00 00 00 00 00];
+		};
+
+		pruss2_emac1: ethernet-mii1 {
+			phy-handle = <&pruss2_eth1_phy>;
+			phy-mode = "rgmii-id";
+			syscon-rgmii-delay = <&scm_conf 0x4124>;
+			iep = <&icssg2_iep1>;
+			/* Filled in by bootloader */
+			local-mac-address = [00 00 00 00 00 00];
+		};
+	};
+
+Example (k3-am654 IDK board, dual-emac with interposer card):
+=============================================================
+
+	pruss0_eth {
+		compatible = "ti,am654-dualicssg-prueth";
+		pinctrl-names = "default";
+		pinctrl-0 = <&icssg01_rgmii_pins_default>;
+		sram = <&msmc_ram>;
+		interrupt-parent = <&main_udmass_inta>;
+
+		/* port-1, rx pru/rtu followed by port-2 tx pru/rtu, then port-1 rx and so forth */
+		prus = <&pru0_0>, <&rtu0_0>, <&pru0_1>, <&rtu0_1>, <&pru1_0>, <&rtu1_0>, <&pru1_1>, <&rtu1_1>;
+		firmware-name = "ti-pruss/am65x-pru0-prueth-fw.elf",
+				"ti-pruss/am65x-rtu0-prueth-fw.elf",
+				"ti-pruss/am65x-pru1-prueth-fw.elf",
+				"ti-pruss/am65x-rtu1-prueth-fw.elf",
+				"ti-pruss/am65x-pru0-prueth-fw.elf",
+				"ti-pruss/am65x-rtu0-prueth-fw.elf",
+				"ti-pruss/am65x-pru1-prueth-fw.elf",
+				"ti-pruss/am65x-rtu1-prueth-fw.elf";
+		mii-g-rt = <&icssg0_mii_g_rt>;
+		mii-g-rt-paired = <&icssg1_mii_g_rt>;
+		mii-rt = <&icssg0_mii_rt>;
+		mii-rt-paired = <&icssg1_mii_rt>;
+
+		dma-coherent;
+		dmas = <&main_udmap &icssg0 4 UDMA_DIR_TX>, /* egress icssg0 slice 1 */
+		       <&main_udmap &icssg0 5 UDMA_DIR_TX>, /* egress icssg0 slice 1 */
+		       <&main_udmap &icssg0 6 UDMA_DIR_TX>, /* egress icssg0 slice 1 */
+		       <&main_udmap &icssg0 7 UDMA_DIR_TX>, /* mgmnt cmd icssg0 slice 1 */
+
+		       <&main_udmap &icssg0 0 UDMA_DIR_RX>, /* ingress icssg0 slice 0 */
+		       <&main_udmap &icssg0 2 UDMA_DIR_RX>, /* ingress mgmnt rsp icssg0 slice 0 */
+
+		       <&main_udmap &icssg1 4 UDMA_DIR_TX>, /* egress icssg1 slice 1 */
+		       <&main_udmap &icssg1 5 UDMA_DIR_TX>, /* egress icssg1 slice 1 */
+		       <&main_udmap &icssg1 6 UDMA_DIR_TX>, /* egress icssg1 slice 1 */
+		       <&main_udmap &icssg1 7 UDMA_DIR_TX>, /* mgmnt cmd icssg1 slice 1 */
+
+		       <&main_udmap &icssg1 0 UDMA_DIR_RX>, /* ingress icssg1 slice 0 */
+		       <&main_udmap &icssg1 2 UDMA_DIR_RX>; /* mgmnt rsp icssg1 slice 0 */
+
+		dma-names = "tx0-0", "tx0-1", "tx0-2", "tx0-3",
+			    "rx0", "rxmgm0",
+			    "tx1-0", "tx1-1", "tx1-2", "tx1-3",
+			    "rx1", "rxmgm1";
+
+		pruss0_emac0: ethernet-mii0 {
+			phy-handle = <&pruss0_eth0_phy>;
+			phy-mode = "rgmii-id";
+			syscon-rgmii-delay = <&scm_conf 0x4114>;
+			/* Filled in by bootloader */
+			local-mac-address = [00 00 00 00 00 00];
+		};
+
+		pruss0_emac1: ethernet-mii1 {
+			phy-handle = <&pruss0_eth1_phy>;
+			phy-mode = "rgmii-id";
+			syscon-rgmii-delay = <&scm_conf 0x4104>;
+			/* Filled in by bootloader */
+			local-mac-address = [00 00 00 00 00 00];
+		};
+	};
